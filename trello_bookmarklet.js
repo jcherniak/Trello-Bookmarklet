@@ -13,7 +13,7 @@
   }
 
   /* This is run after we've connected to Trello and selected a list */
-  var run = function(Trello, idList) {
+  var run = function(Trello, idList, labels) {
     var name;
     // Default description is the URL of the page we're looking at
     var desc = location.href;
@@ -90,7 +90,8 @@
     if(name) {
       Trello.post("lists/" + idList + "/cards", { 
         name: name, 
-        desc: desc
+        desc: desc,
+        labels: labels
       }, function(card){
         // Display a little notification in the upper-left corner with a link to the card
         // that was just created
@@ -215,6 +216,8 @@
   // The ids of values we keep in localStorage
   var appKeyName = "trelloAppKey";
   var idListName = "trelloIdList";
+  var idBoardName = "trelloIdBoard";
+  var labelsName = "trelloLabels";
 
   waterfall([
     // Load jQuery
@@ -295,7 +298,56 @@
     function(idList, next) {
       if(idList) {
         store(idListName, idList);
-        next(Trello, idList);
+
+        var idBoard = store(idBoardName) || window[idBoardName];
+        if(idBoard && idBoard.length == 24) {
+            next(idList, idBoard);
+        } else {
+          Trello.get('lists/' + idList + '/idBoard', {}, function (data) {
+            idBoard = data._value;
+            store(idBoardName, idBoard);
+
+            next(idList, idBoard);
+          });
+        }
+      }      
+    },
+    // Select any labels to apply to cards
+    function(idList, idBoard, next) {
+      var labels = store(labelsName) || window[labelsName];
+      if(labels) {
+         next(idList, labels);
+      } else {
+         Trello.get("boards/" + idBoard + "/labels", { fields: "name,color" }, function(labels){
+          $prompt = overlayPrompt('What labels should be applied to cards from this page?<hr><div class="labels" style="height:300px;overflow-y:scroll"></div>', false, function(){
+            labelList = $prompt.find("input:checked");
+
+            var labels = [];
+            labelList.each(function() {
+               labels[labels.length] = $(this).val();
+            });
+
+            labels = labels.join(',');
+          
+            next(idList, labels);
+          });
+
+          $.each(labels, function(ix, label) {
+            var $div = $("<div>").appendTo($prompt.find('.labels'));
+            idLabel = label.id;
+            $("<input type='checkbox'>").attr('id', idLabel).attr("value", label.color).attr("name", "idLabel").appendTo($div);
+
+            color = label.color.charAt(0).toUpperCase() + label.color.slice(1);
+            $("<label>").text(color + " - " + label.name).attr("for", idLabel).appendTo($div);
+          });
+        });
+      }
+    },
+    // Store the labels for later
+    function(idList, labels, next) {
+      if(labels) {
+        store(labelsName, labels);
+        next(Trello, idList, labels);
       }      
     },
     // Run the user portion
